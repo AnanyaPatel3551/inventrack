@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and adjust as needed.
+# AWS credentials are NOT set here - use `aws configure` or environment variables.
+
+aws_region   = "ap-south-1"
+project_name = "inventrack"
+environment  = "dev"
+owner        = "ananya-patel"
+
+vpc_cidr        = "10.20.0.0/16"
+public_subnets  = ["10.20.101.0/24", "10.20.102.0/24"]
+private_subnets = ["10.20.1.0/24", "10.20.2.0/24"]
+
+cluster_name        = "inventrack-eks"
+kubernetes_version  = "1.36"
+node_instance_types = ["t3.medium"]
+node_min_size       = 2
+node_max_size       = 4
+node_desired_size   = 2
