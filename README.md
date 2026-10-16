@@ -1,810 +1,393 @@
 # InvenTrack – Inventory Management
 
-DevOps Final Capstone (Session 21) by **Ananya Patel** (24bcs10019) · GitHub: [AnanyaPatel3551](https://github.com/AnanyaPatel3551)
+**DevOps Final Capstone (Session 21)**
+**Name:** Ananya Patel  **Roll no:** 24bcs10019
+**GitHub:** [AnanyaPatel3551/inventrack](https://github.com/AnanyaPatel3551/inventrack)
+**Images:** `ghcr.io/ananyapatel3551/inventrack-backend`, `ghcr.io/ananyapatel3551/inventrack-frontend`
 
-## 1. What we are building
+---
 
-InvenTrack is a small but realistic SaaS-style inventory management application. It tracks products (name, SKU, category, quantity, price, supplier) and their stock status (in stock, low stock, out of stock). It is built with:
+## 1. What the app does
 
-- React + Vite frontend
-- Responsive HTML/JSX + CSS UI
-- FastAPI Python backend
-- PostgreSQL database
-- SQLAlchemy ORM
-- Alembic database migrations
-- REST APIs
-- Pytest automated tests
-- Docker containers
-- GitHub Actions CI/CD
-- Trivy container security scanning
-- GitHub Container Registry
-- Terraform for AWS infrastructure
-- AWS VPC + EKS
-- Kubernetes
-- Helm
-- Ingress
-- HPA
-- Prometheus + Grafana
-- Health/readiness endpoints
-- Troubleshooting exercises
+InvenTrack is a small inventory management web app. I built it to have a real application to take through the full DevOps pipeline, from my laptop to a monitored Kubernetes cluster.
 
-The point is not to teach isolated tools. The point is to show how a real application travels from a developer laptop to a monitored Kubernetes environment.
+With InvenTrack you can:
+
+- add products with a name, unique SKU, category, quantity, price and supplier
+- see every product in a table and filter by stock status
+- change a product's status between **In stock**, **Low stock** and **Out of stock** with one click
+- delete products
+- see KPI cards with the total number of products and how many are in / low / out of stock
+- see a "Needs attention" list of products that are low or out of stock
+
+The UI is a dark-sidebar dashboard that also works on a phone screen.
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/products` | List all products |
+| GET | `/api/products/{id}` | Get one product (404 if missing) |
+| POST | `/api/products` | Create a product (409 if the SKU already exists, 422 on invalid data) |
+| PUT | `/api/products/{id}` | Update any fields of a product |
+| DELETE | `/api/products/{id}` | Delete a product |
+| GET | `/api/products/stats` | Counts: `total`, `inStock`, `lowStock`, `outOfStock` |
+| GET | `/health` | Liveness check – the process is up |
+| GET | `/ready` | Readiness check – the database is reachable |
+| GET | `/metrics` | Prometheus metrics |
+
+Swagger docs are at `/docs` when the backend is running.
+
+---
+
+## 2. Architecture
 
 ```text
-Developer
-   |
-   v
-Git / GitHub
-   |
-   v
-GitHub Actions
-   |-- pytest
-   |-- frontend build
-   |-- Docker build
-   |-- Trivy scan
-   `-- push images to GHCR
-              |
-              v
-        Terraform
-              |
-       AWS VPC + EKS
-              |
-              v
-            Helm
-              |
-      +-------+--------+
-      |                |
-   Frontend          Backend
-    React            FastAPI
-      |                |
-      +-------> PostgreSQL
-              |
-       Prometheus
-              |
-           Grafana
+                Developer (git push)
+                        |
+                        v
+                 GitHub repository
+                        |
+                        v
+     GitHub Actions  ───────────────────────────────────────────
+     | test:   pytest -v, npm run build                         |
+     | build-scan-push: docker build -> Trivy scan -> push      |
+      ──────────────────────────┬───────────────────────────────
+                                v
+              GitHub Container Registry (GHCR)
+        inventrack-backend:<sha>   inventrack-frontend:<sha>
+                                |
+                                v  helm upgrade --install
+   ┌─────────────────────── minikube (namespace: inventrack) ───────────────────────┐
+   │                                                                                 │
+   │   Browser ──> Ingress (nginx)  host: inventrack.local                           │
+   │                 |                         |                                     │
+   │                 | /                       | /api                                │
+   │                 v                         v                                     │
+   │     inventrack-frontend (x2)     inventrack-backend (x2..6, HPA on CPU)         │
+   │     React build on nginx         FastAPI + SQLAlchemy                           │
+   │     non-root, port 8080          non-root, port 8000                            │
+   │                                           |                                     │
+   │                                           v                                     │
+   │                              inventrack-postgres (PVC)                          │
+   │                                                                                 │
+   └──────────────────────────────────────────┬──────────────────────────────────────┘
+                                              | /metrics (ServiceMonitor)
+                                              v
+                namespace: monitoring – Prometheus ──> Grafana dashboard
+
+   Terraform (terraform/): AWS VPC + EKS defined as code (validated, not applied – see section 9)
 ```
 
 ---
 
-## 2. Repository structure
+## 3. Tech stack
+
+| Layer | Tools |
+|-------|-------|
+| Frontend | React 19, Vite 8, plain CSS (responsive) |
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2.1, Pydantic |
+| Database | PostgreSQL 16, Alembic migrations |
+| Testing | pytest (10 tests, SQLite test database) |
+| Containers | Docker (multi-stage frontend build, non-root images), Docker Compose |
+| CI/CD | GitHub Actions |
+| Security | Trivy image scanning |
+| Registry | GitHub Container Registry (GHCR) |
+| Infrastructure as Code | Terraform – AWS VPC + EKS modules |
+| Kubernetes | minikube, Helm chart, nginx Ingress, HPA |
+| Monitoring | kube-prometheus-stack (Prometheus + Grafana), prometheus-fastapi-instrumentator |
+
+### Repository layout
 
 ```text
 inventrack/
-├── frontend/                 # React application and CSS
-├── backend/                  # FastAPI application
-│   ├── app/                  # API, models, schemas, DB config
-│   ├── tests/                # Pytest tests
-│   └── alembic/              # DB migrations
-├── docker-compose.yml        # Full local stack
-├── terraform/                # AWS VPC + EKS infrastructure
-├── helm/inventrack/            # Kubernetes package
-├── k8s/                      # namespace/bootstrap manifests
-├── monitoring/               # Prometheus/Grafana values
-├── troubleshooting/          # deliberately broken manifests
-├── scripts/                  # load-test helpers
-└── .github/workflows/        # CI/CD
+├── backend/                 FastAPI app, Alembic migrations, pytest tests, Dockerfile
+├── frontend/                React app, nginx config template, Dockerfile
+├── docker-compose.yml       postgres + backend + frontend for local runs
+├── .github/workflows/       CI/CD pipeline
+├── terraform/               AWS VPC + EKS (see terraform/README.md)
+├── k8s/namespace.yaml       inventrack namespace
+├── helm/inventrack/         Helm chart (values-dev.yaml for minikube)
+├── monitoring/              Prometheus/Grafana values and the Grafana dashboard
+├── scripts/load-test.sh     parallel requests to trigger the HPA
+├── troubleshooting/         broken manifests and their fixes
+└── screenshots/             evidence for each phase
 ```
 
 ---
 
-# PART A — UNDERSTAND THE APPLICATION
+## 4. Running it locally (without Docker)
 
-## 3. Frontend
+**Backend** (needs Python 3.12+ and a PostgreSQL database):
 
-The frontend is intentionally closer to a real SaaS dashboard than a tutorial CRUD page.
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 
-It contains:
-
-- dark sidebar
-- workspace navigation
-- dashboard header
-- KPI cards
-- product table (SKU, category, quantity, price, supplier)
-- status filters
-- stock status badges and a button to change status
-- "needs attention" panel for low/out-of-stock items
-- pipeline indicator
-- add-product modal
-- responsive CSS
-- loading and backend-error states
-
-The browser calls `/api/products` and `/api/products/stats`.
-
-The browser does **not** need to know the internal backend hostname. Nginx and Kubernetes Ingress handle routing.
-
-## 4. Backend
-
-FastAPI exposes:
-
-```text
-GET    /
-GET    /health
-GET    /ready
-GET    /metrics
-
-GET    /api/products
-GET    /api/products/{id}
-POST   /api/products
-PUT    /api/products/{id}
-DELETE /api/products/{id}
-GET    /api/products/stats
+export DATABASE_URL='postgresql+psycopg://inventrack:inventrack@localhost:5432/inventrack'
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
 ```
 
-Swagger documentation is available at `/docs` when the backend is running.
+Then open http://localhost:8000/docs.
 
-### Why `/health`?
+**Frontend** (needs Node 22):
 
-A container can be alive while its application is unhealthy. `/health` gives Kubernetes a cheap liveness check.
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-### Why `/ready`?
+Then open http://localhost:5173. The Vite dev server forwards `/api` calls to the backend on port 8000.
 
-Readiness answers a different question: **can this application serve traffic now?** The endpoint verifies database access before returning READY.
+### Tests
 
-### Why `/metrics`?
+```bash
+cd backend
+pytest -v
+```
 
-Prometheus needs machine-readable metrics. The FastAPI Prometheus instrumentator exposes request metrics for monitoring.
+The tests use a temporary SQLite file (`test.db`) instead of PostgreSQL, so they don't need a database server. `tests/conftest.py` sets `DATABASE_URL` before the app is imported and starts one `TestClient` for the whole session. There are 10 tests covering health, root, ready, create, validation (empty name → 422, duplicate SKU → 409), list/get/404, update + stats, delete and `/metrics`.
 
 ---
 
-# PART B — RUN IT LOCALLY
-
-## 5. Fastest method: Docker Compose
-
-Requirements:
-
-- Docker Desktop / Docker Engine
-- Docker Compose
-
-Run:
+## 5. Running it with Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+| URL | What |
+|-----|------|
+| http://localhost:3000 | InvenTrack UI |
+| http://localhost:8000/docs | Swagger |
+| http://localhost:8000/metrics | Prometheus metrics |
 
-```text
-http://localhost:3000
-```
+Things I set up in the Docker part:
 
-Backend:
+- **Backend image:** `python:3.12-slim`, runs as user `10001`, and runs `alembic upgrade head` before starting Uvicorn.
+- **Frontend image:** multi-stage. Node builds the React app, and the final image is `nginx-unprivileged`, which runs as user `101` on port 8080 (Compose maps `3000 → 8080`).
+- **nginx config:** it's a template (`default.conf.template`). The backend address comes from the `BACKEND_URL` environment variable, so the same image works in Compose (`http://backend:8000`) and in Kubernetes.
+- **Postgres healthcheck:** Postgres has a `pg_isready` healthcheck and the backend waits for `service_healthy`. Without this the backend started before Postgres was ready and crashed.
 
-```text
-http://localhost:8000/docs
-http://localhost:8000/health
-http://localhost:8000/metrics
-```
+Stop with `docker compose down` (add `-v` to delete the database volume).
 
-Stop:
-
-```bash
-docker compose down
-```
-
-Delete database volume too:
-
-```bash
-docker compose down -v
-```
+> If port 5432 is already used on your machine, change the postgres port mapping to `"5433:5432"`. The backend talks to Postgres over the Compose network, so only tools on the host are affected.
 
 ---
 
-## 6. Run backend directly
+## 6. CI/CD with GitHub Actions
 
-Requirements:
-
-- Python 3.12+
-- PostgreSQL
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Set the database connection:
-
-```bash
-export DATABASE_URL='postgresql+psycopg://inventrack:inventrack@localhost:5432/inventrack'
-```
-
-Run migrations:
-
-```bash
-alembic upgrade head
-```
-
-Start FastAPI:
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-Test:
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8000/api/products
-```
-
-Open:
+File: `.github/workflows/ci-cd.yml`. It runs on every push and pull request to `main`.
 
 ```text
-http://localhost:8000/docs
+test  ──>  build-scan-push
 ```
+
+**test job**
+1. set up Python 3.12, `pip install -r requirements.txt`
+2. `pytest -v` – if any test fails, the pipeline stops here
+3. set up Node 22, `npm install && npm run build`
+
+**build-scan-push job** (only runs if `test` passed)
+1. lowercase the GitHub owner name (GHCR image names must be lowercase)
+2. build `ghcr.io/ananyapatel3551/inventrack-backend:<commit sha>` and `...-frontend:<commit sha>`
+3. scan both images with Trivy (HIGH and CRITICAL, fail the job if something is found)
+4. log in to GHCR and push both images – **only on push events**, so pull requests are tested and scanned but never published
+
+Every image is tagged with the Git commit SHA instead of `latest`, so I can always tell exactly which commit is running.
+
+All dependency versions are pinned in `requirements.txt` and `package.json` (plus `package-lock.json`), and the Trivy action is pinned to a full commit SHA instead of a tag.
 
 ---
 
-# PART C — TESTING
+## 7. Security scanning with Trivy
 
-## 7. Pytest
+Trivy scans each container image for known vulnerabilities in its operating-system packages (Debian for the backend, Alpine for the frontend) and in the language packages inside it, such as the Python libraries installed in the backend image. In my pipeline it reports only HIGH and CRITICAL vulnerabilities that already have a fixed version available, and it fails the build if it finds any. A clean result means no known, fixable HIGH or CRITICAL CVEs at the time of the scan – it does not mean the image is secure forever, which is why the scan runs on every push.
 
-```bash
-cd backend
-pytest -q
-```
-
-Students should understand why tests happen **before Docker images are pushed**.
-
-```text
-Bad code
-  ↓
-pytest fails
-  ↓
-Pipeline stops
-  ↓
-No broken image is promoted
-```
-
-This is the first quality gate.
+When I first added the scan, the frontend failed with 41 fixable HIGH/CRITICAL CVEs (mostly OpenSSL) because `nginx-unprivileged:1.27-alpine` was built on an old Alpine release. Moving to `nginx-unprivileged:1.30.6-alpine` brought it to 0.
 
 ---
 
-# PART D — GIT AND GITHUB
+## 8. Kubernetes on minikube with Helm
 
-## 8. Initialize Git
+The Helm chart is in `helm/inventrack/`. With release name `inventrack` it creates:
+
+| Resource | Name | Notes |
+|----------|------|-------|
+| Deployment + Service | `inventrack-backend` | 2 replicas (HPA min 2, max 6), port `http` 8000, probes on `/ready` and `/health` |
+| Deployment + Service | `inventrack-frontend` | 2 replicas, port `http` 8080 |
+| Deployment + Service + PVC | `inventrack-postgres` | 5Gi volume |
+| Secret | `inventrack-db` | Postgres user/password and `DATABASE_URL` |
+| ConfigMap | `inventrack-config` | `BACKEND_URL` for the frontend nginx |
+| Ingress | `inventrack` | `inventrack.local`: `/api` → backend:8000, `/` → frontend:8080 |
+| HPA | `inventrack-backend` | scales on 60% CPU |
+| ServiceMonitor | `inventrack-backend` | only created when the Prometheus Operator is installed |
+
+### Steps
 
 ```bash
-git init
-git add .
-git commit -m "Initial InvenTrack inventory application"
-git branch -M main
-git remote add origin <YOUR_GITHUB_REPO>
-git push -u origin main
+minikube start --cpus 4 --memory 8192
+minikube addons enable ingress
+minikube addons enable metrics-server
+
+kubectl apply -f k8s/namespace.yaml
+
+# use a commit whose pipeline pushed images to GHCR
+SHA=$(git rev-parse HEAD)
+
+helm upgrade --install inventrack ./helm/inventrack \
+  -n inventrack \
+  -f helm/inventrack/values-dev.yaml \
+  --set backend.image.tag=$SHA \
+  --set frontend.image.tag=$SHA
+
+kubectl get pods,svc -n inventrack
+helm list -n inventrack
 ```
 
-Explain:
+To open the app through the Ingress:
 
-- Git = version control
-- GitHub = remote collaboration/source platform
-- commit = immutable project checkpoint
-- branch = isolated line of development
-- pull request = controlled change review
+1. Run `minikube tunnel` in a separate terminal and leave it open.
+2. Add this line to the hosts file (`C:\Windows\System32\drivers\etc\hosts` on Windows, `/etc/hosts` on Linux/macOS):
+   ```text
+   127.0.0.1 inventrack.local
+   ```
+3. Open http://inventrack.local.
+
+My GHCR packages are public, so minikube can pull the images without a pull secret.
+
+### Autoscaling (HPA)
+
+```bash
+kubectl get hpa -n inventrack -w                 # terminal 1
+CONCURRENCY=50 ./scripts/load-test.sh            # terminal 2
+```
+
+`load-test.sh` sends parallel requests to `http://inventrack.local/api/products` (2000 requests, 20 at a time by default; `TOTAL`, `CONCURRENCY` and `URL` can be changed). Each request queries the database, so the backend CPU goes up and the HPA adds pods. After the load stops, it scales back down to 2 after a few minutes.
 
 ---
 
-# PART E — DOCKER
+## 9. Terraform (AWS VPC + EKS)
 
-## 9. Backend Dockerfile
+The `terraform/` folder defines the production-style AWS setup:
 
-The backend image:
-
-1. starts from Python
-2. installs dependencies
-3. copies Alembic
-4. copies application code
-5. creates a non-root user
-6. exposes port 8000
-7. runs migrations
-8. starts Uvicorn
-
-Build:
-
-```bash
-docker build -t inventrack-backend:local ./backend
-```
-
-Run with a reachable PostgreSQL instance:
-
-```bash
-docker run --rm -p 8000:8000 \
-  -e DATABASE_URL='postgresql+psycopg://inventrack:inventrack@host.docker.internal:5432/inventrack' \
-  inventrack-backend:local
-```
-
-## 10. Frontend Dockerfile
-
-The frontend uses a multi-stage build:
-
-```text
-Node
-  ↓
-npm build
-  ↓
-static dist/
-  ↓
-Nginx runtime image
-```
-
-This keeps build tooling out of the final runtime image.
-
-Build:
-
-```bash
-docker build -t inventrack-frontend:local ./frontend
-```
-
----
-
-# PART F — CI/CD
-
-## 11. GitHub Actions pipeline
-
-The workflow has three conceptual stages:
-
-```text
-TEST
- ↓
-BUILD + SECURITY SCAN + PUSH
- ↓
-DEPLOY
-```
-
-### Test job
-
-- checkout
-- setup Python
-- install requirements
-- run pytest
-- setup Node
-- build React frontend
-
-### Build/scan/push job
-
-- build backend image
-- build frontend image
-- scan both with Trivy
-- push to GHCR
-
-### Deploy job
-
-- install Helm
-- configure kubectl
-- run `helm upgrade --install`
-
-The image tag is the Git commit SHA.
-
-That means:
-
-```text
-commit A → image A
-commit B → image B
-commit C → image C
-```
-
-This gives traceability from production back to source code.
-
----
-
-# PART G — SECURITY SCANNING
-
-## 12. Trivy
-
-The pipeline scans container images for HIGH and CRITICAL vulnerabilities.
-
-A security scanner is not a magic guarantee of security. It is one automated control in the pipeline.
-
-Students should understand:
-
-```text
-SAST
-Dependency scanning
-Secret scanning
-Container scanning
-Runtime security
-```
-
-These are different security layers.
-
----
-
-# PART H — TERRAFORM
-
-## 13. Why Terraform?
-
-Kubernetes only manages workloads. It does not create the AWS network and EKS infrastructure in this project.
-
-Terraform creates:
-
-```text
-AWS
- ├── VPC
- ├── public subnets
- ├── private subnets
- ├── NAT gateway
- └── EKS cluster
-       └── managed worker nodes
-```
-
-Go to Terraform:
+- **VPC** `inventrack-vpc` (10.20.0.0/16): 2 public and 2 private subnets in two availability zones, one NAT gateway, and the `kubernetes.io/role/elb` / `internal-elb` subnet tags
+- **EKS** `inventrack-eks` (Kubernetes 1.36): a managed node group of `t3.medium` nodes, min 2 / max 4
+- typed variables with descriptions, `default_tags` on every resource, and outputs including a ready-made `configure_kubectl` command
+- `terraform.tfvars.example` with no credentials
 
 ```bash
 cd terraform
 terraform init
-terraform plan
-terraform apply
+terraform fmt -check
+terraform validate
 ```
 
-The default region is `ap-south-1`.
+> **Note:** I defined the EKS cluster in Terraform, but I did **not** run `terraform apply`, because I had no AWS budget for this project. An EKS control plane, two t3.medium nodes and a NAT gateway are charged by the hour. `terraform init`, `fmt` and `validate` all pass, and the code is ready to apply with an AWS account. To still show a working Kubernetes deployment, I ran the same Helm chart on **minikube** on my laptop.
 
-After EKS is created, configure kubectl using the command shown by AWS/Terraform output.
-
-Destroy when finished:
-
-```bash
-terraform destroy
-```
-
-### Important teaching point
-
-Terraform is **Infrastructure as Code**.
-
-Instead of manually clicking:
-
-```text
-AWS Console → VPC → Subnet → EKS → Nodes...
-```
-
-we describe infrastructure in code and let Terraform reconcile the desired state.
+More details are in [terraform/README.md](terraform/README.md).
 
 ---
 
-# PART I — KUBERNETES
+## 10. Monitoring (Prometheus + Grafana)
 
-## 14. Namespace
-
-```bash
-kubectl apply -f k8s/namespace.yaml
-```
-
-A namespace provides logical isolation for the application.
-
-## 15. Helm
-
-Instead of maintaining many manually edited YAML files, Helm turns the Kubernetes deployment into a reusable package.
+The backend exposes Prometheus metrics at `/metrics` using `prometheus-fastapi-instrumentator` (request counts by route and status class, and a request-duration histogram).
 
 ```bash
-helm upgrade --install inventrack ./helm/inventrack \
-  --namespace inventrack \
-  --create-namespace
+helm install kube-prometheus-stack \
+  oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
+  -n monitoring --create-namespace \
+  -f monitoring/prometheus-values.yaml
+
+kubectl apply -f monitoring/inventrack-dashboard.yaml
+
+# run the app chart again so the ServiceMonitor gets created now that the CRD exists
+helm upgrade --install inventrack ./helm/inventrack -n inventrack -f helm/inventrack/values-dev.yaml \
+  --set backend.image.tag=$SHA --set frontend.image.tag=$SHA
 ```
 
-Important Helm concepts:
+- `monitoring/prometheus-values.yaml`: Grafana is enabled, the dashboard sidecar loads every ConfigMap labelled `grafana_dashboard: "1"`, and Prometheus picks up ServiceMonitors from all namespaces.
+- `monitoring/inventrack-dashboard.yaml`: the **InvenTrack – Backend Overview** dashboard with four panels: request rate, p95 latency, 5xx error rate and pod count (including the HPA's desired replicas).
 
-- Chart
-- values
-- templates
-- release
-- upgrade
-- rollback
+Open Prometheus and Grafana:
+
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+# http://localhost:9090/targets – inventrack-backend should be UP
+
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3001:80
+# http://localhost:3001 – user admin, password:
+kubectl get secret -n monitoring kube-prometheus-stack-grafana -o jsonpath="{.data.admin-password}" | base64 -d
+```
 
 ---
 
-# PART J — KUBERNETES COMPONENTS
+## 11. Troubleshooting cases
 
-## 16. Deployment
+Each case in `troubleshooting/` is a small Deployment + Service in the `inventrack` namespace with exactly one mistake. The corrected version is in `troubleshooting/fixes/`.
 
-The Deployment manages backend/frontend Pods.
+| Case | What is wrong | What I saw | How I found it | Fix |
+|------|---------------|------------|----------------|-----|
+| `broken-image.yaml` | image tag `1.30.66-alpine` does not exist | pods in `ErrImagePull` → `ImagePullBackOff` | `kubectl describe pod` → Events: image not found | correct tag `1.30.6-alpine` |
+| `broken-service.yaml` | Service selector `app: inventrack-lab-website` does not match the pod label `app: inventrack-lab-web` | pods Running and Ready, but endpoints `<none>` | `kubectl get endpoints` and `kubectl get pods --show-labels` | fix the selector |
+| `broken-readiness.yaml` | readiness probe calls `/healthz`, which returns 404 | pods Running but `0/1` Ready, 0 restarts, endpoints `<none>` | `kubectl describe pod` → `Readiness probe failed: ... statuscode: 404` | probe path `/` |
 
-If a Pod dies:
+```bash
+kubectl apply -f troubleshooting/broken-readiness.yaml
+kubectl get pods,endpoints -n inventrack
+kubectl describe pod -n inventrack -l scenario=broken-readiness
+kubectl apply -f troubleshooting/fixes/broken-readiness.yaml
 
-```text
-Deployment
-   ↓
-creates replacement Pod
+# clean up all labs
+kubectl delete -f troubleshooting/fixes/
 ```
 
-## 17. Service
-
-Pods are ephemeral. A Service provides stable networking.
-
-```text
-Frontend → backend Service → backend Pods
-```
-
-## 18. PostgreSQL
-
-For the classroom/local Kubernetes demo, PostgreSQL is deployed inside the cluster with a PVC.
-
-For production AWS architecture, students should understand the tradeoff between running PostgreSQL in Kubernetes and using a managed database such as Amazon RDS.
+What I learned: all three cases end up with "the Service has no endpoints", but the cause is in a different place each time – the image, the labels, or the probe. `kubectl get pods` already tells them apart (no container / Ready / not Ready).
 
 ---
 
-# PART K — INGRESS
+## 12. Screenshots
 
-## 19. Ingress
+All screenshots are in [`screenshots/`](screenshots/), numbered in the order of the phases above.
 
-The application has two logical routes:
-
-```text
-/inventrack.local/
-      ↓
-React frontend
-
-/inventrack.local/api
-      ↓
-FastAPI backend
-```
-
-Enable ingress with the dev values:
-
-```bash
-helm upgrade --install inventrack ./helm/inventrack \
-  -n inventrack \
-  -f helm/inventrack/values-dev.yaml
-```
-
-Students should understand that an Ingress resource is only configuration. An Ingress Controller must actually implement it.
-
----
-
-# PART L — HPA
-
-## 20. Horizontal Pod Autoscaler
-
-The HPA can scale the backend based on CPU utilization.
-
-```text
-low traffic
-   ↓
-2 Pods
-
-high CPU
-   ↓
-3 Pods
-   ↓
-4 Pods
-   ↓
-...
-```
-
-Inspect:
-
-```bash
-kubectl get hpa -n inventrack
-```
-
-HPA requires resource requests and a metrics provider such as Metrics Server.
-
-A normal health request may not create enough CPU pressure to demonstrate scaling. For a classroom demo, use a controlled load generator and watch the metrics.
+| # | Phase | Screenshot |
+|---|-------|------------|
+| 01 | Git | [01-git-commit-history.png](screenshots/01-git-commit-history.png) – commit history |
+| 02 | Testing | [02-pytest-passing.png](screenshots/02-pytest-passing.png) – `pytest -v`, all tests passing |
+| 03 | Docker | [03-docker-compose-up.png](screenshots/03-docker-compose-up.png) – `docker compose up --build` with all three services |
+| 04 | Application | [04-app-localhost.png](screenshots/04-app-localhost.png) – InvenTrack at http://localhost:3000 |
+| 05 | API | [05-swagger-docs.png](screenshots/05-swagger-docs.png) – Swagger docs at `/docs` |
+| 06 | CI/CD | [06-actions-workflow-runs.png](screenshots/06-actions-workflow-runs.png) – GitHub Actions workflow runs |
+| 07 | CI/CD | [07-actions-pipeline-green.png](screenshots/07-actions-pipeline-green.png) – green pipeline: `test` → `build-scan-push` |
+| 08 | Security | [08-trivy-scan.png](screenshots/08-trivy-scan.png) – Trivy scan output |
+| 09 | Registry | [09-ghcr-packages.png](screenshots/09-ghcr-packages.png) – both packages in GHCR |
+| 10 | Registry | [10-ghcr-image-tags.png](screenshots/10-ghcr-image-tags.png) – image versions tagged with commit SHAs |
+| 11 | Terraform | [11-terraform-init-validate.png](screenshots/11-terraform-init-validate.png) – `terraform init`, `fmt` and `validate` |
+| 12 | Kubernetes | [12-kubectl-get-pods.png](screenshots/12-kubectl-get-pods.png) – all pods Running |
+| 13 | Kubernetes | [13-kubectl-get-svc.png](screenshots/13-kubectl-get-svc.png) – ClusterIP services |
+| 14 | Helm | [14-helm-list.png](screenshots/14-helm-list.png) – `helm list -n inventrack` |
+| 15 | Ingress | [15-app-via-ingress.png](screenshots/15-app-via-ingress.png) – app at http://inventrack.local |
+| 16 | HPA | [16-hpa-scaling.png](screenshots/16-hpa-scaling.png) – HPA scaling under load |
+| 17 | Monitoring | [17-metrics-endpoint.png](screenshots/17-metrics-endpoint.png) – `/metrics` output |
+| 18 | Monitoring | [18-prometheus-targets.png](screenshots/18-prometheus-targets.png) – Prometheus target UP |
+| 19 | Monitoring | [19-grafana-dashboard.png](screenshots/19-grafana-dashboard.png) – Grafana dashboard with live data |
+| 20 | Troubleshooting | [20-troubleshoot-image-broken.png](screenshots/20-troubleshoot-image-broken.png) – ImagePullBackOff |
+| 21 | Troubleshooting | [21-troubleshoot-image-fixed.png](screenshots/21-troubleshoot-image-fixed.png) – pods Running after the fix |
+| 22 | Troubleshooting | [22-troubleshoot-service-broken.png](screenshots/22-troubleshoot-service-broken.png) – endpoints `<none>` |
+| 23 | Troubleshooting | [23-troubleshoot-service-fixed.png](screenshots/23-troubleshoot-service-fixed.png) – endpoints filled |
+| 24 | Troubleshooting | [24-troubleshoot-readiness-broken.png](screenshots/24-troubleshoot-readiness-broken.png) – pods 0/1 Ready |
+| 25 | Troubleshooting | [25-troubleshoot-readiness-fixed.png](screenshots/25-troubleshoot-readiness-fixed.png) – pods 1/1 Ready |
 
 ---
 
-# PART M — MONITORING
-
-## 21. Prometheus
-
-Prometheus collects metrics from the FastAPI `/metrics` endpoint.
-
-The ServiceMonitor tells the Prometheus Operator what to scrape.
-
-## 22. Grafana
-
-Grafana visualizes the collected metrics.
-
-Useful questions:
-
-- How many HTTP requests are arriving?
-- Which endpoint is slow?
-- Are errors increasing?
-- Is the application receiving traffic?
-- Is CPU increasing?
-- Is HPA scaling?
-
----
-
-# PART N — TROUBLESHOOTING LAB
-
-## 23. Broken image
-
-Apply:
-
-```bash
-kubectl apply -f troubleshooting/broken-image.yaml
-```
-
-Then:
-
-```bash
-kubectl get pods
-kubectl describe pod <pod-name>
-kubectl get events --sort-by=.lastTimestamp
-```
-
-Expected investigation:
-
-```text
-ImagePullBackOff
-      ↓
-describe Pod
-      ↓
-wrong image/tag
-      ↓
-fix deployment
-```
-
-## 24. Broken Service
-
-Apply:
-
-```bash
-kubectl apply -f troubleshooting/broken-service.yaml
-```
-
-Investigate:
-
-```bash
-kubectl get svc
-kubectl get endpoints
-kubectl get pods --show-labels
-```
-
-The key lesson is that a Service selects Pods using labels.
-
-No matching labels = no endpoints = no traffic.
-
----
-
-# PART O — FINAL DEMO
-
-### 1. Application
-
-Open InvenTrack and add a product.
-
-### 2. API
-
-Open FastAPI Swagger:
-
-```text
-/docs
-```
-
-Create/read/update/delete a product.
-
-### 3. Database
-
-Show the PostgreSQL `products` table.
-
-### 4. Git
-
-Make a small application change and commit it.
-
-### 5. CI
-
-Push to GitHub and show tests running.
-
-### 6. Docker
-
-Show the two images.
-
-### 7. Security
-
-Show Trivy scanning the images.
-
-### 8. Registry
-
-Show the images in GHCR.
-
-### 9. Terraform
-
-Show the AWS infrastructure code.
-
-### 10. Kubernetes
-
-```bash
-kubectl get pods -n inventrack
-kubectl get svc -n inventrack
-```
-
-### 11. Helm
-
-```bash
-helm list -n inventrack
-```
-
-### 12. Ingress
-
-Open the application through the Ingress hostname.
-
-### 13. HPA
-
-```bash
-kubectl get hpa -n inventrack
-```
-
-### 14. Monitoring
-
-Show Prometheus and Grafana.
-
-### 15. Failure simulation
-
-Break a Service/image and troubleshoot it live.
-
----
-
-# FINAL STUDENT PROJECT
-
-Possible domains:
-
-- CRM
-- Inventory management
-- Appointment booking
-- Helpdesk
-- Ecommerce administration
-- Clinic management
-- Restaurant management
-- Employee management
-- Learning management system
-
-Minimum requirements:
-
-### Application
-
-- frontend
-- backend
-- PostgreSQL
-- minimum 4 REST APIs
-- responsive UI
-
-### Engineering
-
-- Git/GitHub
-- automated tests
-- Docker
-
-### DevOps
-
-- GitHub Actions
-- security scan
-- container registry
-- Terraform
-- Kubernetes
-- Helm
-- Ingress
-- HPA
-- Prometheus/Grafana
-
-### Final presentation
-
-Each student must demonstrate:
-
-```text
-Application
-  ↓
-Git commit
-  ↓
-CI pipeline
-  ↓
-Docker image
-  ↓
-Security scan
-  ↓
-Registry
-  ↓
-Terraform infrastructure
-  ↓
-Kubernetes deployment
-  ↓
-Helm
-  ↓
-Ingress
-  ↓
-Autoscaling
-  ↓
-Monitoring
-  ↓
-Troubleshooting
-```
-
-That is the actual objective of Session 21.
+## 13. Problems I ran into
+
+- **Backend crashed on `docker compose up`.** `depends_on` only waits for the Postgres container to start, not for Postgres to accept connections. I added a `pg_isready` healthcheck and `condition: service_healthy`.
+- **Port 5432 already in use** on my laptop, so the postgres container could not publish its port. The app itself does not need that port mapping because the services talk over the Compose network.
+- **GHCR image names must be lowercase**, but my GitHub username has capital letters, so using `github.repository_owner` directly would make `docker build -t` fail. The pipeline lowercases the owner before tagging.
+- **Trivy failed the frontend image** with 41 HIGH/CRITICAL CVEs from the old nginx base image. Updating to `nginx-unprivileged:1.30.6-alpine` fixed it.
+- **The nginx config had `backend:8000` hard-coded.** That hostname only exists in Docker Compose, so in Kubernetes nginx would fail at startup. I changed it to read `BACKEND_URL`, which Helm sets from a ConfigMap.
