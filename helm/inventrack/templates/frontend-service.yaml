@@ -3,4 +3,4 @@ kind: Service
 metadata: {name: inventrack-frontend}
 spec:
   selector: {app: inventrack-frontend}
-  ports: [{port: 80, targetPort: 80}]
+  ports: [{port: 80, targetPort: 8080}]

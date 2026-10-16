@@ -28,10 +28,12 @@ services:
 
   frontend:
     build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
     depends_on:
       - backend
     ports:
-      - "3000:80"
+      - "3000:8080"
 
 volumes:
   postgres-data:

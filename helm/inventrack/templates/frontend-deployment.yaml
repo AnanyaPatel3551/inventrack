@@ -14,7 +14,10 @@ spec:
       containers:
       - name: frontend
         image: "{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
-        ports: [{containerPort: 80}]
-        readinessProbe: {httpGet: {path: /, port: 80}, initialDelaySeconds: 5}
-        livenessProbe: {httpGet: {path: /, port: 80}, initialDelaySeconds: 10}
+        ports: [{containerPort: 8080}]
+        env:
+        # nginx renders this into its proxy_pass at container start
+        - {name: BACKEND_URL, value: "http://{{ include "inventrack.fullname" . }}-backend:8000"}
+        readinessProbe: {httpGet: {path: /, port: 8080}, initialDelaySeconds: 5}
+        livenessProbe: {httpGet: {path: /, port: 8080}, initialDelaySeconds: 10}
         resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 200m, memory: 128Mi}}
