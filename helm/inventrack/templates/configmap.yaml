@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "inventrack.configMapName" . }}
+  labels:
+    {{- include "inventrack.componentLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
+data:
+  # nginx in the frontend image renders this into its /api proxy_pass at startup
+  BACKEND_URL: {{ printf "http://%s:%v" (include "inventrack.backendName" .) .Values.backend.port | quote }}

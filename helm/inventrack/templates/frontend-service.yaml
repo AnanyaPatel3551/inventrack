@@ -1,6 +1,14 @@
 apiVersion: v1
 kind: Service
-metadata: {name: inventrack-frontend}
+metadata:
+  name: {{ include "inventrack.frontendName" . }}
+  labels:
+    {{- include "inventrack.componentLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
 spec:
-  selector: {app: inventrack-frontend}
-  ports: [{port: 80, targetPort: 8080}]
+  type: ClusterIP
+  selector:
+    {{- include "inventrack.selectorLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.frontend.port }}
+      targetPort: http

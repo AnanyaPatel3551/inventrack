@@ -1,11 +1,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "inventrack.fullname" . }}-backend
-  labels: {app: inventrack-backend}
+  name: {{ include "inventrack.backendName" . }}
+  labels:
+    {{- include "inventrack.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
 spec:
-  selector: {app: inventrack-backend}
+  type: ClusterIP
+  selector:
+    {{- include "inventrack.selectorLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
   ports:
-    - port: 8000
-      targetPort: 8000
-      name: http
+    - name: http
+      port: {{ .Values.backend.port }}
+      targetPort: http

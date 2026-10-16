@@ -1,15 +1,18 @@
-{{- if .Values.monitoring.serviceMonitor.enabled }}
+{{- /* Only rendered when the Prometheus Operator CRDs exist, so the chart installs before monitoring is set up */}}
+{{- if and .Values.monitoring.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ include "inventrack.fullname" . }}-backend
+  name: {{ include "inventrack.backendName" . }}
   labels:
+    {{- include "inventrack.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
     release: kube-prometheus-stack
 spec:
   selector:
-    matchLabels: {app: inventrack-backend}
+    matchLabels:
+      {{- include "inventrack.selectorLabels" (dict "ctx" . "component" "backend") | nindent 6 }}
   endpoints:
     - port: http
       path: /metrics
-      interval: 15s
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
 {{- end }}

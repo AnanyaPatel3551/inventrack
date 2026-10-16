@@ -1,29 +1,53 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "inventrack.fullname" . }}-backend
+  name: {{ include "inventrack.backendName" . }}
+  labels:
+    {{- include "inventrack.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- /* When the HPA is on it owns the replica count (minReplicas), so Helm must not reset it */}}
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.backend.replicas }}
+  {{- end }}
   selector:
-    matchLabels: {app: inventrack-backend}
+    matchLabels:
+      {{- include "inventrack.selectorLabels" (dict "ctx" . "component" "backend") | nindent 6 }}
   template:
     metadata:
-      labels: {app: inventrack-backend}
+      labels:
+        {{- include "inventrack.componentLabels" (dict "ctx" . "component" "backend") | nindent 8 }}
+      annotations:
+        # Restart the pods when the database secret changes
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backend
-          image: "{{ .Values.backend.image }}:{{ .Values.backend.tag }}"
-          ports: [{containerPort: 8000}]
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.port }}
           env:
             - name: DATABASE_URL
-              value: "postgresql+psycopg://{{ .Values.postgres.username }}:{{ .Values.postgres.password }}@{{ .Values.postgres.host }}:5432/{{ .Values.postgres.database }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "inventrack.dbSecretName" . }}
+                  key: DATABASE_URL
           readinessProbe:
-            httpGet: {path: /ready, port: 8000}
+            httpGet:
+              path: /ready
+              port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
-            httpGet: {path: /health, port: 8000}
+            httpGet:
+              path: /health
+              port: http
             initialDelaySeconds: 20
             periodSeconds: 15
           resources:
-{{ toYaml .Values.resources | indent 12 }}
+            {{- toYaml .Values.backend.resources | nindent 12 }}

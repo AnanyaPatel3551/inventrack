@@ -1,28 +1,51 @@
-frontend:
-  image: ghcr.io/ananyapatel3551/inventrack-frontend
-  tag: latest
-backend:
-  image: ghcr.io/ananyapatel3551/inventrack-backend
-  tag: latest
-replicaCount: 2
-namespace: inventrack
+nameOverride: ""
+fullnameOverride: ""
+
 imagePullSecrets: []
+
+backend:
+  image:
+    repository: ghcr.io/ananyapatel3551/inventrack-backend
+    # CI pushes images tagged with the Git commit SHA, e.g. --set backend.image.tag=<sha>
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  port: 8000
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+frontend:
+  image:
+    repository: ghcr.io/ananyapatel3551/inventrack-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  port: 8080
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 128Mi}
+
 postgres:
-  host: inventrack-postgres
+  image: postgres:16-alpine
   database: inventrack
   username: inventrack
+  # Demo password - override with --set postgres.password=... outside the classroom
   password: inventrack
+  storage: 5Gi
+
 ingress:
   enabled: false
+  className: nginx
   host: inventrack.local
+
 hpa:
   enabled: true
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 60
-resources:
-  requests: {cpu: 100m, memory: 256Mi}
-  limits: {cpu: 500m, memory: 512Mi}
+
 monitoring:
   serviceMonitor:
     enabled: true
+    interval: 15s

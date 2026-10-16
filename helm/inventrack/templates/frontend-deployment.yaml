@@ -1,23 +1,45 @@
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: inventrack-frontend, labels: {app: inventrack-frontend}}
+metadata:
+  name: {{ include "inventrack.frontendName" . }}
+  labels:
+    {{- include "inventrack.componentLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
-  selector: {matchLabels: {app: inventrack-frontend}}
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "inventrack.selectorLabels" (dict "ctx" . "component" "frontend") | nindent 6 }}
   template:
-    metadata: {labels: {app: inventrack-frontend}}
+    metadata:
+      labels:
+        {{- include "inventrack.componentLabels" (dict "ctx" . "component" "frontend") | nindent 8 }}
+      annotations:
+        # Restart the pods when BACKEND_URL changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-{{ toYaml . | indent 8 }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-      - name: frontend
-        image: "{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
-        ports: [{containerPort: 8080}]
-        env:
-        # nginx renders this into its proxy_pass at container start
-        - {name: BACKEND_URL, value: "http://{{ include "inventrack.fullname" . }}-backend:8000"}
-        readinessProbe: {httpGet: {path: /, port: 8080}, initialDelaySeconds: 5}
-        livenessProbe: {httpGet: {path: /, port: 8080}, initialDelaySeconds: 10}
-        resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 200m, memory: 128Mi}}
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "inventrack.configMapName" . }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}

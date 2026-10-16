@@ -1,6 +1,19 @@
-replicaCount: 1
+# Local minikube: minikube addons enable ingress && minikube addons enable metrics-server
+backend:
+  image:
+    repository: ghcr.io/ananyapatel3551/inventrack-backend
+  replicas: 2
+
+frontend:
+  image:
+    repository: ghcr.io/ananyapatel3551/inventrack-frontend
+  replicas: 2
+
 ingress:
   enabled: true
   host: inventrack.local
+
 hpa:
-  enabled: false
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
