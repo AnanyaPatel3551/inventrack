@@ -1,0 +1,51 @@
+# Fix for scenario 1 - broken image
+#
+# Cause: the image tag 1.30.66-alpine does not exist in the registry, so the kubelet
+# reports ErrImagePull and then backs off (ImagePullBackOff). describe pod shows
+# "manifest unknown" / "not found" in the Events section.
+#
+# Fix: use a tag that exists (1.30.6-alpine). Applying this file updates the same
+# Deployment, which rolls out new pods with the correct image.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventrack-lab-image
+  namespace: inventrack
+  labels:
+    app: inventrack-lab-image
+    scenario: broken-image
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inventrack-lab-image
+  template:
+    metadata:
+      labels:
+        app: inventrack-lab-image
+        scenario: broken-image
+    spec:
+      containers:
+        - name: web
+          image: nginxinc/nginx-unprivileged:1.30.6-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventrack-lab-image
+  namespace: inventrack
+  labels:
+    scenario: broken-image
+spec:
+  selector:
+    app: inventrack-lab-image
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,10 +1,50 @@
+# Scenario 1 - broken image
+#
+# Symptom: the pods never start.
+# Investigate:
+#   kubectl get pods,endpoints -n inventrack -l scenario=broken-image
+#   kubectl describe pod -n inventrack -l scenario=broken-image
+#   kubectl get events -n inventrack --sort-by=.lastTimestamp
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: inventrack-broken-image, namespace: inventrack}
+metadata:
+  name: inventrack-lab-image
+  namespace: inventrack
+  labels:
+    app: inventrack-lab-image
+    scenario: broken-image
 spec:
-  replicas: 1
-  selector: {matchLabels: {app: broken-image}}
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inventrack-lab-image
   template:
-    metadata: {labels: {app: broken-image}}
+    metadata:
+      labels:
+        app: inventrack-lab-image
+        scenario: broken-image
     spec:
-      containers: [{name: backend, image: ghcr.io/example/inventrack-backend:does-not-exist}]
+      containers:
+        - name: web
+          image: nginxinc/nginx-unprivileged:1.30.66-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventrack-lab-image
+  namespace: inventrack
+  labels:
+    scenario: broken-image
+spec:
+  selector:
+    app: inventrack-lab-image
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

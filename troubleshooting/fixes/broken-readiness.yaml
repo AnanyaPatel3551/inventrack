@@ -1,0 +1,59 @@
+# Fix for scenario 3 - broken readiness probe
+#
+# Cause: the readiness probe calls /healthz, which this nginx server does not serve,
+# so every probe gets HTTP 404. describe pod shows
+#   "Readiness probe failed: HTTP probe failed with statuscode: 404".
+# The container keeps running (readiness failures never restart a pod), but Kubernetes
+# leaves it out of the Service endpoints, so no traffic reaches it.
+#
+# Fix: probe a path that returns 200 (/). For the real InvenTrack backend the
+# readiness path is /ready, which also checks the database connection.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventrack-lab-readiness
+  namespace: inventrack
+  labels:
+    app: inventrack-lab-readiness
+    scenario: broken-readiness
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inventrack-lab-readiness
+  template:
+    metadata:
+      labels:
+        app: inventrack-lab-readiness
+        scenario: broken-readiness
+    spec:
+      containers:
+        - name: web
+          image: nginxinc/nginx-unprivileged:1.30.6-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventrack-lab-readiness
+  namespace: inventrack
+  labels:
+    scenario: broken-readiness
+spec:
+  selector:
+    app: inventrack-lab-readiness
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
