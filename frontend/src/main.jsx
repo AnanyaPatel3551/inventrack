@@ -101,7 +101,7 @@ function App() {
       <main className="main">
         <header>
           <div>
-            <p className="eyebrow">INVENTORY / OVERVIEW</p>
+            <p className="eyebrow">INVENTORY_OVERVIEW</p>
             <h1>{greeting()}, {USER.name.split(' ')[0]} 👋</h1>
             <p className="muted">Here’s the current state of your stock.</p>
           </div>
