@@ -1,0 +1,28 @@
+frontend:
+  image: ghcr.io/ananyapatel3551/inventrack-frontend
+  tag: latest
+backend:
+  image: ghcr.io/ananyapatel3551/inventrack-backend
+  tag: latest
+replicaCount: 2
+namespace: inventrack
+imagePullSecrets: []
+postgres:
+  host: inventrack-postgres
+  database: inventrack
+  username: inventrack
+  password: inventrack
+ingress:
+  enabled: false
+  host: inventrack.local
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 60
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {cpu: 500m, memory: 512Mi}
+monitoring:
+  serviceMonitor:
+    enabled: true

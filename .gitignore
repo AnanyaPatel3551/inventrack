@@ -1,0 +1,33 @@
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+test.db
+
+# Node / frontend
+node_modules/
+dist/
+
+# Build output and logs
+target/
+*.log
+
+# Terraform
+.terraform/
+*.tfstate*
+terraform.tfvars
+
+# Local tooling
+.claude/
+CLAUDE.md

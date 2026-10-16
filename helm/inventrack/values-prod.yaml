@@ -1,0 +1,10 @@
+frontend:
+  image: ghcr.io/ananyapatel3551/inventrack-frontend
+backend:
+  image: ghcr.io/ananyapatel3551/inventrack-backend
+replicaCount: 2
+ingress:
+  enabled: true
+  host: inventrack.example.com
+hpa:
+  enabled: true

@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: inventrack-broken-image, namespace: inventrack}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: broken-image}}
+  template:
+    metadata: {labels: {app: broken-image}}
+    spec:
+      containers: [{name: backend, image: ghcr.io/example/inventrack-backend:does-not-exist}]
