@@ -1,6 +1,53 @@
-grafana:
-  enabled: true
+# Values for prometheus-community/kube-prometheus-stack
+#
+#   helm install kube-prometheus-stack oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f monitoring/prometheus-values.yaml
+
 prometheus:
   prometheusSpec:
+    # By default Prometheus only reads ServiceMonitors carrying this Helm release's label.
+    # Turning that off and using empty selectors makes it pick up every ServiceMonitor,
+    # including the one the inventrack chart creates in the inventrack namespace.
     serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
     serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    retention: 2d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+
+grafana:
+  enabled: true
+  # Admin login is stored in a secret, not here:
+  #   kubectl get secret -n monitoring kube-prometheus-stack-grafana -o jsonpath="{.data.admin-password}" | base64 -d
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      # Load every ConfigMap labelled grafana_dashboard: "1", in any namespace
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+
+alertmanager:
+  enabled: true
+
+# Smaller footprint for a laptop minikube cluster
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
