@@ -31,4 +31,3 @@ terraform.tfvars
 # Local tooling
 .claude/
 CLAUDE.md
-demo/*.mp4
